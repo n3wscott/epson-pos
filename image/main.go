@@ -24,11 +24,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	scale := src.Bounds().Max.X / 42
+	scale := src.Bounds().Max.X / 56
 	fmt.Println("org:", src.Bounds().Max.X, "scale:", scale)
 
 	// Set the expected size that you want:
-	dst := image.NewRGBA(image.Rect(0, 0, src.Bounds().Max.X/scale, src.Bounds().Max.Y/scale))
+	dst := image.NewRGBA(image.Rect(0, 0, src.Bounds().Max.X/scale, src.Bounds().Max.Y/(scale)))
 
 	// Resize:
 	draw.NearestNeighbor.Scale(dst, dst.Rect, src, src.Bounds(), draw.Over, nil)
@@ -46,7 +46,8 @@ func main() {
 			if level == 5 {
 				level--
 			}
-			fmt.Print(levels[level])
+			level = 4 - level
+			fmt.Printf("%s", levels[level])
 		}
 		fmt.Print("\n")
 	}

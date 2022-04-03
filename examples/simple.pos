@@ -1,0 +1,13 @@
+'// Initialize printer
+    ESC "@"
+'// Select Font B
+    ESC "M" 1
+'// Emphasized mode on
+    ESC "E" 1
+'// Character magnification Wx2 Hx2
+    GS "!" 0x11
+
+    "hello" LF HT "world" LF
+
+'// Feed and Cut Paper (partial cut)
+    GS "V" 66 30

@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	catFile, err := os.Open("n3wscott.png")
+	catFile, err := os.Open("aruna2.png")
 	if err != nil {
 		log.Fatal(err)
 	}

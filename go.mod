@@ -4,6 +4,7 @@ go 1.17
 
 require (
 	github.com/spf13/cobra v1.4.0
+	github.com/yuin/goldmark v1.4.11
 	golang.org/x/image v0.0.0-20211028202545-6944b10bf410
 	sigs.k8s.io/release-utils v0.6.0
 )

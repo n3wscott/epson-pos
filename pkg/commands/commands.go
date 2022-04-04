@@ -19,7 +19,7 @@ func New() *cobra.Command {
 	}
 
 	// Add sub-commands.
-	cmd.AddCommand(Print(), version.Version())
+	cmd.AddCommand(Print(), Convert(), version.Version())
 
 	return cmd
 }

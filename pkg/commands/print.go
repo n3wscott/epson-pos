@@ -9,32 +9,47 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"os"
-	"time"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/n3wscott/escpos/pkg/escpos"
+	"github.com/n3wscott/escpos/pkg/transport"
 )
 
 func Print() *cobra.Command {
 	impl := new(printImpl)
 	var file string
+	var transportMode string
+	var usbBackend string
 	cmd := &cobra.Command{
-		Use:   "print HOST:PORT --file [ESC_POS_FILE | -]",
+		Use:   "print TARGET --file [ESC_POS_FILE | -]",
 		Short: "Print a ESC/POS formatted file to a printer.",
+		Long: `Print a ESC/POS formatted file to a printer.
+
+TARGET is normally HOST:PORT for Ethernet printers, for example 192.168.1.40:9100.
+For USB, pass a usb://... DEVICE_URI from "escpos devices" and set --transport usb.`,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			impl.stdout = cmd.OutOrStdout()
 			impl.stderr = cmd.ErrOrStderr()
 
-			// Host
+			// Target
 			if len(args) != 1 {
-				return fmt.Errorf("expected HOST:PORT (tip: look for printer-??? using `arp -a`; PORT is normally 9100)")
+				return fmt.Errorf("expected TARGET")
 			}
-			host := args[0]
-			if err := impl.WithHost(host); err != nil {
-				return err
+			target := args[0]
+			switch resolveTransport(transportMode, target) {
+			case "tcp":
+				if err := impl.WithTCP(cmd.Context(), target); err != nil {
+					return err
+				}
+			case "usb":
+				if err := impl.WithUSBBackend(cmd.Context(), usbBackend, target); err != nil {
+					return err
+				}
+			default:
+				return fmt.Errorf("unknown transport %q, expected auto, tcp, or usb", transportMode)
 			}
 
 			// File
@@ -56,6 +71,8 @@ func Print() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&file, "file", "f", "", "ESC/POS file path, or - for stdin.")
+	cmd.Flags().StringVar(&transportMode, "transport", "auto", "Transport to use: auto, tcp, or usb.")
+	cmd.Flags().StringVar(&usbBackend, "usb-backend", transport.DefaultCUPSUSBBackend, "Path to the CUPS USB backend.")
 	_ = cmd.MarkFlagRequired("file")
 
 	return cmd
@@ -67,27 +84,36 @@ type printImpl struct {
 	stderr io.Writer
 
 	in  io.Reader
-	out net.Conn
+	out io.WriteCloser
 }
 
-// withHost will attempt to resolve and connect to the provided `host`.
+// WithTCP will attempt to resolve and connect to the provided `host`.
 // `host` is expected to be `HOST:PORT`.
-func (i *printImpl) WithHost(host string) error {
-	_, err := net.ResolveTCPAddr("tcp", host)
+func (i *printImpl) WithTCP(ctx context.Context, host string) error {
+	conn, err := transport.DialTCP(ctx, host)
 	if err != nil {
-		return fmt.Errorf("unable to resolve TCP address %s: %w", host, err)
+		return err
 	}
-	ipconn, err := net.DialTimeout("tcp", host, time.Second*5)
+	i.out = conn
+	i.done = append(i.done, conn.Close)
+	return nil
+}
+
+func (i *printImpl) WithUSBBackend(ctx context.Context, backendPath, deviceURI string) error {
+	conn, err := transport.OpenCUPSUSBBackend(ctx, backendPath, deviceURI, "escpos", i.stderr)
 	if err != nil {
-		return fmt.Errorf("unable to dial to TCP address %s: %w", host, err)
+		return err
 	}
-	i.out = ipconn
-	i.done = append(i.done, ipconn.Close)
+	i.out = conn
+	i.done = append(i.done, conn.Close)
 	return nil
 }
 
 // PrintESCPOS will convert in into ESC/POS bytes and send them to out.
 func (i *printImpl) PrintESCPOS(ctx context.Context) error {
+	if i.out == nil {
+		return fmt.Errorf("printer transport is not open")
+	}
 	return escpos.Convert(i.in, i.out)
 }
 
@@ -98,4 +124,15 @@ func (i *printImpl) Done() {
 			_, _ = fmt.Fprint(i.stderr, err.Error())
 		}
 	}
+}
+
+func resolveTransport(mode, target string) string {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" || mode == "auto" {
+		if strings.HasPrefix(strings.ToLower(target), "usb://") {
+			return "usb"
+		}
+		return "tcp"
+	}
+	return mode
 }

@@ -16,6 +16,11 @@ import (
 
 var debug = false
 
+type posToken struct {
+	value  string
+	quoted bool
+}
+
 // Convert takes an ascii ESC/POS file from `reader` and converts it to raw
 // bytes written to `out` intended for the POS printer.
 func Convert(reader io.Reader, out io.Writer) error {
@@ -34,69 +39,29 @@ func Convert(reader io.Reader, out io.Writer) error {
 			continue
 		}
 
-		parts := strings.Split(line, " ")
-		inQuote := false
+		parts := tokenizePOSLine(line)
 		for _, p := range parts {
-			if len(p) == 1 && p == "\"" {
-				inQuote = true
+			if p.value == "" && !p.quoted {
 				continue
 			}
-			if inQuote && (p == " " || p == "") {
-				_, _ = out.Write([]byte(" "))
-			}
-
-			if p == "" || p == " " {
-				continue
-			}
-			if inQuote && !strings.HasSuffix(p, "\"") {
+			if p.quoted {
+				n, _ := out.Write(StringToAsciiBytes(p.value))
 				if debug {
-					fmt.Printf("Mid-Quote: %s\n", p)
+					fmt.Println("wrote string bytes: ", n)
 				}
-				n, _ := out.Write(StringToAsciiBytes(p))
+			} else if code, ok := commands[p.value]; ok {
 				if debug {
-					fmt.Println("wrote bytes: ", n)
-				}
-				_, _ = out.Write([]byte(" "))
-			} else if code, ok := commands[p]; ok {
-				if debug {
-					fmt.Printf("Code: %s, %x\n", p, code)
+					fmt.Printf("Code: %s, %x\n", p.value, code)
 				}
 				_, _ = out.Write([]byte{code})
-			} else if strings.HasPrefix(p, "\"") && strings.HasSuffix(p, "\"") {
-				code := strings.TrimPrefix(p, "\"")
-				code = strings.TrimSuffix(code, "\"")
-				if debug {
-					fmt.Printf("String: %s\n", code)
-				}
-				_, _ = out.Write(StringToAsciiBytes(code))
-			} else if strings.HasPrefix(p, "\"") {
-				inQuote = true
-				code := strings.TrimPrefix(p, "\"")
-				if debug {
-					fmt.Printf("Start Quote: %s\n", code)
-				}
-				n, _ := out.Write(StringToAsciiBytes(code))
-				if debug {
-					fmt.Println("wrote bytes: ", n)
-				}
-			} else if strings.HasSuffix(p, "\"") {
-				inQuote = false
-				code := strings.TrimSuffix(p, "\"")
-				if debug {
-					fmt.Printf("End Quote: %s\n", code)
-				}
-				n, _ := out.Write(StringToAsciiBytes(code))
-				if debug {
-					fmt.Println("wrote bytes: ", n)
-				}
 			} else {
 				// Number.
-				code, err := strconv.ParseUint(p, 0, 8)
+				code, err := strconv.ParseUint(p.value, 0, 8)
 				if err != nil {
-					return fmt.Errorf("failed to parse number %v: %w", p, err)
+					return fmt.Errorf("failed to parse number %v: %w", p.value, err)
 				}
 				if debug {
-					if strings.HasPrefix(p, "0x") {
+					if strings.HasPrefix(p.value, "0x") {
 						fmt.Printf("%08b", code)
 					} else {
 						fmt.Printf("Number %d\n", code)
@@ -106,4 +71,45 @@ func Convert(reader io.Reader, out io.Writer) error {
 			}
 		}
 	}
+}
+
+func tokenizePOSLine(line string) []posToken {
+	tokens := []posToken(nil)
+	var b strings.Builder
+	inQuote := false
+	quoted := false
+
+	flush := func() {
+		tokens = append(tokens, posToken{value: b.String(), quoted: quoted})
+		b.Reset()
+		quoted = false
+	}
+
+	for _, r := range line {
+		switch {
+		case r == '"':
+			if inQuote {
+				flush()
+				inQuote = false
+			} else {
+				if b.Len() > 0 {
+					flush()
+				}
+				inQuote = true
+				quoted = true
+			}
+		case r == ' ' || r == '\t':
+			if inQuote {
+				b.WriteRune(r)
+			} else if b.Len() > 0 {
+				flush()
+			}
+		default:
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() > 0 || inQuote {
+		flush()
+	}
+	return tokens
 }

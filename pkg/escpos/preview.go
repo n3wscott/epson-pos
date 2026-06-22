@@ -25,9 +25,18 @@ func Preview(source string) string {
 	lines := []previewLine(nil)
 	var current strings.Builder
 	align := "left"
+	inPageMode := false
 
 	for _, rawLine := range strings.Split(source, "\n") {
 		line := strings.TrimSpace(rawLine)
+		if strings.HasPrefix(line, "'// PREVIEW ") {
+			if current.Len() > 0 {
+				lines = append(lines, previewLine{text: current.String(), align: align})
+				current.Reset()
+			}
+			lines = append(lines, previewLine{override: strings.TrimPrefix(line, "'// PREVIEW ")})
+			continue
+		}
 		if len(line) <= 1 || strings.HasPrefix(line, "'//") {
 			continue
 		}
@@ -35,6 +44,13 @@ func Preview(source string) string {
 		tokens := tokenizePreviewLine(line)
 		for i := 0; i < len(tokens); i++ {
 			t := tokens[i]
+
+			if inPageMode {
+				if !t.quoted && t.value == "FF" {
+					inPageMode = false
+				}
+				continue
+			}
 
 			if !t.quoted {
 				switch t.value {
@@ -46,6 +62,11 @@ func Preview(source string) string {
 					current.WriteString("    ")
 					continue
 				case "ESC":
+					if i+1 < len(tokens) && tokens[i+1].quoted && tokens[i+1].value == "L" {
+						inPageMode = true
+						i++
+						continue
+					}
 					if i+1 < len(tokens) && tokens[i+1].quoted && tokens[i+1].value == "@" {
 						i++
 						continue
@@ -96,6 +117,10 @@ func Preview(source string) string {
 							i += 3
 							continue
 						}
+					}
+					if i+2 < len(tokens) && tokens[i+1].quoted && tokens[i+1].value == "v" {
+						i = len(tokens)
+						continue
 					}
 					if i+2 < len(tokens) && tokens[i+1].quoted && (tokens[i+1].value == "!" || tokens[i+1].value == "V") {
 						i += 2
@@ -270,6 +295,16 @@ func makeBarcodeBars(value string) string {
 		return string([]rune(line)[:previewWidth])
 	}
 	return centerPreviewText(line, previewWidth)
+}
+
+func previewRowText(imageKey string) string {
+	left := "[NV IMAGE " + imageKey + "]"
+	right := "[QR CODE]"
+	gap := previewWidth - utf8.RuneCountInString(left) - utf8.RuneCountInString(right)
+	if gap < 1 {
+		gap = 1
+	}
+	return left + strings.Repeat(" ", gap) + right
 }
 
 func centerPreviewText(text string, width int) string {

@@ -116,18 +116,23 @@ func newDashboard(addr, printer, templatesDir string) (*dashboard, error) {
 }
 
 func (d *dashboard) listenAndServe() error {
+	server := &http.Server{
+		Addr:    d.addr,
+		Handler: d.routes(),
+	}
+	return server.ListenAndServe()
+}
+
+func (d *dashboard) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", d.handleIndex)
 	mux.HandleFunc("/api/preview", d.handlePreview)
 	mux.HandleFunc("/api/print", d.handlePrint)
+	mux.HandleFunc("/api/v1/markdown/preview", d.handlePreview)
+	mux.HandleFunc("/api/v1/markdown/print", d.handlePrint)
 	mux.HandleFunc("/api/templates", d.handleTemplates)
 	mux.HandleFunc("/api/template/fields", d.handleTemplateFields)
-
-	server := &http.Server{
-		Addr:    d.addr,
-		Handler: mux,
-	}
-	return server.ListenAndServe()
+	return mux
 }
 
 func (d *dashboard) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -767,6 +772,7 @@ const dashboardHTML = `<!doctype html>
               <code>::barcode code39 1042</code>
               <code>::barcode code128 ORDER-1042</code>
               <code>::qr https://example.test/1042</code>
+              <code>::row image:A1 qr:https://example.test/1042</code>
               <code>::align left|center|right</code>
               <code>::size 1x1, ::size 2x2</code>
               <code>::line, ::feed 2, ::cut</code>

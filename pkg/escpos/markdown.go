@@ -168,6 +168,8 @@ func compileDirective(out *strings.Builder, directive string) error {
 			return fmt.Errorf("::qr expects data")
 		}
 		return writeQRCode(out, strings.Join(fields[1:], " "))
+	case "row":
+		return writeRow(out, fields[1:])
 	case "image", "nv-image", "nvimage":
 		if len(fields) != 2 {
 			return fmt.Errorf("::image expects an NV image key, for example G1")
@@ -180,6 +182,40 @@ func compileDirective(out *strings.Builder, directive string) error {
 		return fmt.Errorf("unknown directive ::%s", fields[0])
 	}
 	return nil
+}
+
+func writeRow(out *strings.Builder, fields []string) error {
+	values := map[string]string{}
+	for _, field := range fields {
+		key, value, ok := splitDirectiveOption(field)
+		if !ok {
+			return fmt.Errorf("::row expects options like image:G1 and qr:https://example.test")
+		}
+		values[key] = value
+	}
+
+	imageKey := printableText(values["image"])
+	qrValue := values["qr"]
+	if imageKey == "" || qrValue == "" {
+		return fmt.Errorf("::row expects image:<key> and qr:<data>")
+	}
+	if len([]byte(imageKey)) != 2 {
+		return fmt.Errorf("::row image key must be two ASCII characters, for example G1")
+	}
+
+	qrValue = printableText(strings.Trim(qrValue, `"`))
+	out.WriteString(fmt.Sprintf(`'// PREVIEW %s`+"\n", previewRowText(imageKey)))
+	return writeRasterRow(out, imageKey, qrValue)
+}
+
+func splitDirectiveOption(field string) (key, value string, ok bool) {
+	if idx := strings.Index(field, ":"); idx >= 0 {
+		return strings.ToLower(strings.TrimSpace(field[:idx])), strings.TrimSpace(field[idx+1:]), true
+	}
+	if idx := strings.Index(field, "="); idx >= 0 {
+		return strings.ToLower(strings.TrimSpace(field[:idx])), strings.TrimSpace(field[idx+1:]), true
+	}
+	return "", "", false
 }
 
 func writeHeading(out *strings.Builder, level int, text string) {
@@ -316,17 +352,30 @@ func writeQRCode(out *strings.Builder, value string) error {
 	if len(data) > 7092 {
 		return fmt.Errorf("::qr data is too long")
 	}
+
+	out.WriteString(`    ESC "a" 1` + "\n")
+	writeQRCodeRaw(out, value, data, 6)
+	out.WriteString(`    ESC "a" 0` + "\n")
+	return nil
+}
+
+func writeQRCodeRaw(out *strings.Builder, value string, data []byte, moduleSize int) {
 	pL := (len(data) + 3) % 256
 	pH := (len(data) + 3) / 256
 
-	out.WriteString(`    ESC "a" 1` + "\n")
 	out.WriteString(`    GS "(k" 4 0 49 65 50 0` + "\n")
-	out.WriteString(`    GS "(k" 3 0 49 67 6` + "\n")
+	out.WriteString(fmt.Sprintf(`    GS "(k" 3 0 49 67 %d`+"\n", moduleSize))
 	out.WriteString(`    GS "(k" 3 0 49 69 48` + "\n")
 	out.WriteString(fmt.Sprintf(`    GS "(k" %d %d 49 80 48 "%s"`+"\n", pL, pH, value))
 	out.WriteString(`    GS "(k" 3 0 49 81 48` + "\n")
-	out.WriteString(`    ESC "a" 0` + "\n")
-	return nil
+}
+
+func lowByte(value int) int {
+	return value % 256
+}
+
+func highByte(value int) int {
+	return value / 256
 }
 
 func cleanMarkdownInline(text string) string {

@@ -61,10 +61,13 @@ Normal size again
 
 ::line
 #### Native Stored Image Slot
-::image G1
+::image A1
 
 #### QR Code
 ::qr {{qr_url}}
+
+#### Image + QR Row
+::row image:A1 qr:{{qr_url}}
 
 #### UPC-A
 ::barcode upca {{upca}}

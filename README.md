@@ -30,6 +30,7 @@ The default Makefile settings are:
 ADDR=127.0.0.1:8080
 PRINTER=192.168.86.22:9100
 TEMPLATES_DIR=templates
+STATE_FILE=printer_state.json
 ```
 
 Use a different printer or templates directory:
@@ -62,7 +63,7 @@ file under `templates/` is enough for it to appear after the browser refreshes.
 Run the server directly without Make:
 
 ```sh
-go run . serve --addr 127.0.0.1:8080 --printer 192.168.86.22:9100 --templates-dir templates
+go run . serve --addr 127.0.0.1:8080 --printer 192.168.86.22:9100 --templates-dir templates --state-file printer_state.json
 ```
 
 ## HTTP API contract
@@ -119,6 +120,19 @@ provided, the built-in default is the known network printer,
 `192.168.86.22:9100`. The server currently prints from the HTTP API over raw
 TCP, so any override must be a `HOST:PORT` printer target.
 
+The server tracks the active physical printer target. If a print fails while
+dialing the target, it scans local private subnets for reachable port `9100`
+printers, then retries the print once against the discovered target. It does
+not retry after write failures, because a partial write may have already
+started a receipt. The last active/successful target is persisted in
+`--state-file`; on the Pi this should be
+`/var/lib/epson-pos/printer_state.json`.
+
+On networks with other raw-print devices, set `--printer-mac` to the Epson
+printer's MAC address. When this is set, the server validates a target against
+the ARP table before writing receipt bytes and will not select unrelated port
+`9100` devices.
+
 Success response:
 
 ```json
@@ -155,6 +169,26 @@ curl -sS http://127.0.0.1:8080/api/v1/markdown/print \
 The unversioned dashboard endpoints `/api/preview` and `/api/print` use the
 same request and response bodies, but external callers should prefer the
 versioned `/api/v1/markdown/...` paths.
+
+### Printer status
+
+```http
+GET /api/status
+```
+
+`/api/printer` is an alias. The response includes the configured target, active
+target, last successful target, last scan time, last print error, and whether
+the active target is currently reachable.
+
+```json
+{
+  "configured_target": "10.77.0.85:9100",
+  "active_target": "192.168.86.56:9100",
+  "last_successful_target": "192.168.86.56:9100",
+  "last_scan_time": "2026-06-22T10:30:00Z",
+  "reachable": true
+}
+```
 
 ## Templates
 
@@ -301,6 +335,77 @@ go run . print 'usb://EPSON/...' --transport usb --file examples/simple.pos
 ```
 
 USB mode writes ESC/POS bytes directly through the CUPS USB backend.
+
+## Raspberry Pi service
+
+The Pi deployment uses the checked-in unit at `deploy/epson-pos.service`. It
+binds the dashboard/API to `0.0.0.0:8080`, stores templates under
+`/var/lib/epson-pos/templates`, and persists printer recovery state at
+`/var/lib/epson-pos/printer_state.json`.
+
+For a direct printer Ethernet cable, keep Wi-Fi as the Pi's normal LAN and use
+`eth0` as a small private printer network. The checked-in files under
+`deploy/network/` configure `eth0` as `10.77.0.1/24` and run dnsmasq DHCP with
+the printer reserved at `10.77.0.85`. The systemd unit also passes
+`--printer-mac b0:e8:92:fc:dd:26` so self-healing discovery cannot print to a
+LaserJet or other non-Epson port `9100` device.
+
+Install or refresh on the Pi:
+
+```sh
+go build -o epson-pos .
+sudo install -D -m 0755 epson-pos /opt/epson-pos/epson-pos
+sudo install -D -m 0644 deploy/epson-pos.service /etc/systemd/system/epson-pos.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now epson-pos.service
+```
+
+Check the active target:
+
+```sh
+curl -sS http://127.0.0.1:8080/api/status
+```
+
+## trashcan service
+
+The Debian server `trashcan` uses the deployment files under
+`deploy/trashcan/`.
+
+- Service name: `epson-pos.service`
+- HTTP bind address: `0.0.0.0:8080`
+- Runtime config: `/etc/epson-pos/epson-pos.env`
+- Binary: `/opt/epson-pos/epson-pos`
+- Templates: `/var/lib/epson-pos/templates`
+- Printer state: `/var/lib/epson-pos/printer_state.json`
+- Logs: `journalctl -u epson-pos.service`
+
+The checked-in config defaults to `EPSON_POS_PRINTER=192.168.86.22:9100` and
+`EPSON_POS_PRINTER_MAC=b0:e8:92:fc:dd:26`. If the Epson printer has a different
+reachable host/port from `trashcan`, update `/etc/epson-pos/epson-pos.env` and
+restart the service.
+
+Useful commands on `trashcan`:
+
+```sh
+sudo systemctl status epson-pos.service
+sudo journalctl -u epson-pos.service -f
+sudo systemctl restart epson-pos.service
+curl -sS http://127.0.0.1:8080/api/status
+```
+
+Update/deploy a new version:
+
+```sh
+cd ~/src/epson-pos
+git pull --ff-only
+go test ./...
+go build -o epson-pos .
+sudo install -o root -g root -m 0755 epson-pos /opt/epson-pos/epson-pos
+sudo systemctl restart epson-pos.service
+```
+
+Full first-time install commands are documented in
+`deploy/trashcan/README.md`.
 
 ## Architecture
 

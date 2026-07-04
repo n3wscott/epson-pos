@@ -36,6 +36,7 @@ The Makefile accepts:
 make PRINTER=192.168.86.22:9100
 make TEMPLATES_DIR=/path/to/templates
 make ADDR=127.0.0.1:8081
+make STATE_FILE=/path/to/printer_state.json
 ```
 
 ## Code Map
@@ -44,6 +45,8 @@ make ADDR=127.0.0.1:8081
 - `pkg/commands/print.go`: raw print command and transport selection.
 - `pkg/commands/devices.go`: USB device discovery through CUPS.
 - `pkg/commands/serve.go`: dashboard server, API handlers, embedded frontend.
+- `pkg/commands/printer_manager.go`: Ethernet printer target health tracking,
+  last-known-good persistence, local subnet scanning, and safe retry behavior.
 - `pkg/escpos/markdown.go`: markdown/directive to textual ESC/POS compiler.
 - `pkg/escpos/preview.go`: dashboard text preview from textual ESC/POS.
 - `pkg/escpos/template.go`: template field parsing and rendering.
@@ -108,8 +111,52 @@ Print success response:
 }
 ```
 
+Printer state/status is exposed at `GET /api/status` and `GET /api/printer`.
+Responses include `configured_target`, `active_target`,
+`last_successful_target`, `last_scan_time`, `last_print_error`, and
+`reachable`.
+
 Keep `/api/preview` and `/api/print` working for the dashboard, but document and
 test the `/api/v1/markdown/...` paths as the external integration contract.
+
+## Self-Healing Printer Target
+
+The dashboard server owns the physical Ethernet printer target. Beerocracy and
+other apps should keep posting markdown to `http://127.0.0.1:8080` instead of
+discovering printers themselves.
+
+If a print fails while dialing the active target, the server:
+
+- checks configured, active, and last-successful targets first;
+- scans local private `/24` networks, always including `192.168.86.0/24` and
+  `10.77.0.0/24`, for TCP port `9100`;
+- when `--printer-mac` is set, rejects targets whose ARP MAC does not match the
+  Epson printer before any receipt bytes are written;
+- logs reachable discoveries;
+- retries the failed print once after rediscovery.
+
+Do not retry after write errors. A write error may mean the printer has already
+received enough bytes to start a receipt. The retry is only safe for dial/connect
+failures before bytes are written.
+
+Persist printer state with `--state-file`. On the Raspberry Pi use:
+
+```sh
+--state-file /var/lib/epson-pos/printer_state.json
+```
+
+The Pi service should bind to LAN as explicitly accepted by the user:
+
+```sh
+--addr 0.0.0.0:8080
+```
+
+The checked-in unit file is `deploy/epson-pos.service`; keep Pi service changes
+mirrored there.
+
+For Beerocracy, the Epson printer MAC is `b0:e8:92:fc:dd:26`. The Pi service
+must pass `--printer-mac b0:e8:92:fc:dd:26` so self-healing does not print to a
+LaserJet or another raw port `9100` device.
 
 ## Markdown Dialect
 

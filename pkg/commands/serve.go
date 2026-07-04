@@ -21,7 +21,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/n3wscott/escpos/pkg/escpos"
-	"github.com/n3wscott/escpos/pkg/transport"
 )
 
 const defaultPrinterTarget = "192.168.86.22:9100"
@@ -29,22 +28,26 @@ const defaultPrinterTarget = "192.168.86.22:9100"
 func Serve() *cobra.Command {
 	var addr string
 	var printer string
+	var printerMAC string
+	var stateFile string
 	var templatesDir string
 
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the local ESC/POS dashboard.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app, err := newDashboard(addr, printer, templatesDir)
+			app, err := newDashboardWithState(addr, printer, printerMAC, templatesDir, stateFile)
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Dashboard: http://%s/\nPrinter:   %s\nTemplates: %s\n", addr, printer, templatesDir)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Dashboard: http://%s/\nPrinter:   %s\nPrinter MAC: %s\nTemplates: %s\nState:     %s\n", addr, printer, printerMAC, templatesDir, stateFile)
 			return app.listenAndServe()
 		},
 	}
 	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:8080", "Dashboard listen address.")
 	cmd.Flags().StringVar(&printer, "printer", defaultPrinterTarget, "Raw ESC/POS printer target.")
+	cmd.Flags().StringVar(&printerMAC, "printer-mac", "", "Optional expected printer MAC address; when set, discovery only accepts this device.")
+	cmd.Flags().StringVar(&stateFile, "state-file", "printer_state.json", "Path for persistent printer target state.")
 	cmd.Flags().StringVar(&templatesDir, "templates-dir", "templates", "Directory for markdown receipt templates.")
 	return cmd
 }
@@ -52,6 +55,8 @@ func Serve() *cobra.Command {
 type dashboard struct {
 	addr         string
 	printer      string
+	printerMAC   string
+	printers     *printerManager
 	templatesDir string
 	tpl          *template.Template
 }
@@ -100,6 +105,10 @@ type printResponse struct {
 }
 
 func newDashboard(addr, printer, templatesDir string) (*dashboard, error) {
+	return newDashboardWithState(addr, printer, "", templatesDir, filepath.Join(templatesDir, "printer_state.json"))
+}
+
+func newDashboardWithState(addr, printer, printerMAC, templatesDir, stateFile string) (*dashboard, error) {
 	tpl, err := template.New("dashboard").Parse(dashboardHTML)
 	if err != nil {
 		return nil, err
@@ -107,9 +116,15 @@ func newDashboard(addr, printer, templatesDir string) (*dashboard, error) {
 	if err := ensureTemplatesDir(templatesDir); err != nil {
 		return nil, err
 	}
+	printers, err := newPrinterManager(printer, printerMAC, stateFile)
+	if err != nil {
+		return nil, err
+	}
 	return &dashboard{
 		addr:         addr,
 		printer:      printer,
+		printerMAC:   printerMAC,
+		printers:     printers,
 		templatesDir: templatesDir,
 		tpl:          tpl,
 	}, nil
@@ -128,6 +143,8 @@ func (d *dashboard) routes() http.Handler {
 	mux.HandleFunc("/", d.handleIndex)
 	mux.HandleFunc("/api/preview", d.handlePreview)
 	mux.HandleFunc("/api/print", d.handlePrint)
+	mux.HandleFunc("/api/status", d.handleStatus)
+	mux.HandleFunc("/api/printer", d.handleStatus)
 	mux.HandleFunc("/api/v1/markdown/preview", d.handlePreview)
 	mux.HandleFunc("/api/v1/markdown/print", d.handlePrint)
 	mux.HandleFunc("/api/templates", d.handleTemplates)
@@ -179,33 +196,26 @@ func (d *dashboard) handlePrint(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, printResponse{Error: err.Error()})
 		return
 	}
-	printer := strings.TrimSpace(req.Printer)
-	if printer == "" {
-		printer = d.printer
-	}
-
 	_, compiled, err := compileMarkdown(req.Source)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, printResponse{Error: err.Error()})
 		return
 	}
 
-	conn, err := transport.DialTCP(r.Context(), printer)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, printResponse{Error: err.Error()})
-		return
-	}
-	defer func() {
-		if err := conn.Close(); err != nil {
-			log.Printf("close printer connection: %v", err)
-		}
-	}()
-
-	if _, err := conn.Write(compiled); err != nil {
+	if err := d.printers.Print(r.Context(), compiled, req.Printer); err != nil {
 		writeJSON(w, http.StatusBadGateway, printResponse{Error: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, printResponse{OK: true, Bytes: len(compiled)})
+}
+
+func (d *dashboard) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, d.printers.Status(r.Context()))
 }
 
 func (d *dashboard) handleTemplateFields(w http.ResponseWriter, r *http.Request) {

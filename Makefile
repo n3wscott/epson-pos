@@ -3,6 +3,7 @@ SHELL := /bin/bash
 ADDR ?= 127.0.0.1:8080
 PRINTER ?= 192.168.86.22:9100
 TEMPLATES_DIR ?= templates
+STATE_FILE ?= printer_state.json
 BIN ?= /tmp/epson-pos-dashboard
 LOG ?= /tmp/epson-pos-dashboard.log
 PIDFILE ?= /tmp/epson-pos-dashboard.pid
@@ -29,12 +30,13 @@ start: build
 		exit 0; \
 	fi
 	@mkdir -p "$(dir $(LOG))" "$(dir $(PIDFILE))"
-	@nohup "$(BIN)" serve --addr "$(ADDR)" --printer "$(PRINTER)" --templates-dir "$(TEMPLATES_DIR)" >"$(LOG)" 2>&1 & echo $$! >"$(PIDFILE)"
+	@nohup "$(BIN)" serve --addr "$(ADDR)" --printer "$(PRINTER)" --templates-dir "$(TEMPLATES_DIR)" --state-file "$(STATE_FILE)" >"$(LOG)" 2>&1 & echo $$! >"$(PIDFILE)"
 	@sleep 1
 	@if $(MAKE) -s is-running >/dev/null 2>&1; then \
 		echo "server started: http://$(ADDR)/"; \
 		echo "printer: $(PRINTER)"; \
 		echo "templates: $(TEMPLATES_DIR)"; \
+		echo "state: $(STATE_FILE)"; \
 		echo "log: $(LOG)"; \
 	else \
 		echo "server failed to start; log follows:"; \

@@ -1,0 +1,17 @@
+[Unit]
+Description=Epson POS receipt server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=beer
+Group=beer
+WorkingDirectory=/var/lib/epson-pos
+ExecStart=/opt/epson-pos/epson-pos serve --addr 0.0.0.0:8080 --printer 10.77.0.85:9100 --printer-mac b0:e8:92:fc:dd:26 --templates-dir /var/lib/epson-pos/templates --state-file /var/lib/epson-pos/printer_state.json
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

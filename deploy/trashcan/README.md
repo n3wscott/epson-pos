@@ -11,11 +11,12 @@
 - HTTP address: `0.0.0.0:8080`
 - Status endpoint: `http://127.0.0.1:8080/api/status`
 
-The default config uses `EPSON_POS_PRINTER=192.168.86.22:9100`, matching the
-repo's built-in network printer default, and
+The current trashcan config uses `EPSON_POS_PRINTER=192.168.86.48:9100` and
 `EPSON_POS_PRINTER_MAC=b0:e8:92:fc:dd:26` so the server does not select a
 non-Epson port `9100` device. Update `/etc/epson-pos/epson-pos.env` if the
-active Epson endpoint is different from `192.168.86.22:9100`.
+active Epson endpoint changes. On July 6, 2026, `trashcan` also saw raw-port
+devices at `192.168.86.56:9100` and `192.168.86.246:9100`; do not use those
+unless their MAC matches the Epson MAC.
 
 Install or refresh from a checked-out repo on `trashcan`:
 

@@ -379,10 +379,11 @@ The Debian server `trashcan` uses the deployment files under
 - Printer state: `/var/lib/epson-pos/printer_state.json`
 - Logs: `journalctl -u epson-pos.service`
 
-The checked-in config defaults to `EPSON_POS_PRINTER=192.168.86.22:9100` and
+The checked-in config currently uses `EPSON_POS_PRINTER=192.168.86.48:9100` and
 `EPSON_POS_PRINTER_MAC=b0:e8:92:fc:dd:26`. If the Epson printer has a different
 reachable host/port from `trashcan`, update `/etc/epson-pos/epson-pos.env` and
-restart the service.
+restart the service. Do not use another raw port `9100` device unless its MAC
+matches the Epson MAC.
 
 Useful commands on `trashcan`:
 

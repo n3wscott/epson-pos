@@ -8,8 +8,8 @@
 - Templates: `/var/lib/epson-pos/templates`
 - Printer state: `/var/lib/epson-pos/printer_state.json`
 - Logs: `journalctl -u epson-pos.service`
-- HTTP address: `0.0.0.0:8080`
-- Status endpoint: `http://127.0.0.1:8080/api/status`
+- HTTP address: `0.0.0.0:9100`
+- Status endpoint: `http://127.0.0.1:9100/api/status`
 
 The current trashcan config uses `EPSON_POS_PRINTER=192.168.86.48:9100` and
 `EPSON_POS_PRINTER_MAC=b0:e8:92:fc:dd:26` so the server does not select a
@@ -43,7 +43,7 @@ Operations:
 sudo systemctl status epson-pos.service
 sudo journalctl -u epson-pos.service -f
 sudo systemctl restart epson-pos.service
-curl -sS http://127.0.0.1:8080/api/status
+curl -sS http://127.0.0.1:9100/api/status
 ```
 
 Deploy a new version:

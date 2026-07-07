@@ -372,7 +372,7 @@ The Debian server `trashcan` uses the deployment files under
 `deploy/trashcan/`.
 
 - Service name: `epson-pos.service`
-- HTTP bind address: `0.0.0.0:8080`
+- HTTP bind address: `0.0.0.0:9100`
 - Runtime config: `/etc/epson-pos/epson-pos.env`
 - Binary: `/opt/epson-pos/epson-pos`
 - Templates: `/var/lib/epson-pos/templates`
@@ -391,7 +391,7 @@ Useful commands on `trashcan`:
 sudo systemctl status epson-pos.service
 sudo journalctl -u epson-pos.service -f
 sudo systemctl restart epson-pos.service
-curl -sS http://127.0.0.1:8080/api/status
+curl -sS http://127.0.0.1:9100/api/status
 ```
 
 Update/deploy a new version:
